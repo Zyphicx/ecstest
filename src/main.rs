@@ -51,9 +51,9 @@ let component: &Pos = match component.as_any().downcast_ref::<Pos>() {
 
 macro_rules! read {
     ( $($tags:ident: $($components:ident),+ );+ ) => {
-        type Read = ( $( $( &'a $components ),+ )+ );
+        type Read = ( $( $( Vec<&'a $components> ),+ )+ );
 
-        fn get_read(world: &World) -> Self::Read {
+        fn get_read(world: &'a World) -> Self::Read {
             ( $( $( world.tags.get( &($tags as u32) ) // Get all entity ID's
                             .unwrap()
                             .iter()
@@ -74,10 +74,10 @@ macro_rules! read {
         }
     };
     ( $($enums:ident::$tags:ident: $($components:ident),+ );+ ) => {
-        type Read = ( $( $( &'a $components ),+ )+ );
+        type Read = ( $( $( Vec<&'a $components> ),+ )+ );
 
-        fn get_read(world: &World) -> Self::Read {
-            $( $( world.tags.get( &($enums::$tags as u32) ) // Get all entity ID's
+        fn get_read(world: &'a World) -> Self::Read {
+            ( $( $( world.tags.get( &($enums::$tags as u32) ) // Get all entity ID's
                             .unwrap()
                             .iter()
                             .map(|x| { let comp: &Component = &**world.components.get(&TypeId::of::<$components>())
@@ -92,7 +92,7 @@ macro_rules! read {
                                        comp
                                      })
                             .collect()
-              ),+)+
+              ),+)+ )
                            
         }
     }
@@ -102,11 +102,11 @@ macro_rules! write {
     ( $($tags:ident: $($components:ident),+ );+ ) => {
         type Write = ( $( $( &'a mut $components ),+ )+ );
 
-        fn get_write(world: &mut World) -> Self::Write {
-            $( $( world.tags.get( &($tags as u32) ) // Get all entity ID's
+        fn get_write(world: &'a mut World) -> Self::Write {
+            ( $( $( world.tags.get( &($tags as u32) ) // Get all entity ID's
                             .unwrap()
-                            .iter()
-                            .map(|x| { let comp: &mut Component = &**world.components.get_mut(&TypeId::of::<$components>())
+                            .iter_mut()
+                            .map(|x| { let comp: &mut Component = &mut **world.components.get_mut(&TypeId::of::<$components>())
                                                                                      .unwrap()
                                                                                      .get_mut(*x) // Get the corresponding component
                                                                                      .unwrap();
@@ -118,22 +118,41 @@ macro_rules! write {
                                        comp
                                      })
                             .collect()
-              ),+)+
+              ),+)+ )
                            
         }
     };
 
     ( $($enums:ident::$tags:ident: $($components:ident),+ );+ ) => {
-        type Write = ( $( $( &'a mut $components ),+ )+ );
+        type Write = ( $( $( Vec<&'a mut $components> ),+ )+ );
 
-        fn get_write(world: &mut World) -> Self::Write {
-            $( $( world.tags.get( &($enums::$tags as u32) ) // Get all entity ID's
-                            .unwrap()
-                            .iter()
-                            .map(|x| { let comp: &mut Component = &**world.components.get_mut(&TypeId::of::<$components>())
+        fn get_write(world: &'a mut World) -> Self::Write {
+            ( $($( {
+                let tag = $enums::$tags as u32; 
+                let ids = &world.tags[&tag];
+
+                let mut components: Vec<&mut $components> = Vec::new();
+                let storage = world.components.get_mut(&TypeId::of::<$components>()).unwrap();
+
+                for id in ids {
+                    let comp = &mut **storage.get_mut(*id).unwrap(); 
+                    let component = comp.as_any_mut().downcast_mut::<&mut $components>().unwrap();
+                    components.push(component);
+                } 
+
+                components
+            } ),+)+ )
+
+
+
+/*
+            ( $( $( world.tags[&($enums::$tags as u32)] // Get all entity ID's
+                            .into_iter()
+                            .map(|x| {  let hello = &TypeId::of::<&$components>(); 
+                                        let comp: &mut Component = &mut **(world.components.get_mut(hello)
                                                                                      .unwrap()
-                                                                                     .get_mut(*x) // Get the corresponding component
-                                                                                     .unwrap();
+                                                                                     .get_mut(x) // Get the corresponding component
+                                                                                     .unwrap());
                                        let comp: &mut $components = match comp.as_any().downcast_ref::<&mut $components>() {
                                             Some(component) => &mut component,
                                             None => panic!("Tried to access invalid component (help: check for entities with non-matching tags and components"),
@@ -142,7 +161,8 @@ macro_rules! write {
                                        comp
                                      })
                             .collect()
-              ),+)+
+              ),+)+ )
+              */
                            
         }
     }
@@ -188,7 +208,8 @@ impl ComponentStorage for Vec<Box<Component>> {
     }
 
     fn get_mut(&mut self, id: EntityID) -> Option<&mut Box<Component>> {
-        Some(&self[id as usize])
+        use std::ops::IndexMut;
+        Some(self.index_mut(id as usize))
     }
 }
 
@@ -222,6 +243,7 @@ impl<'a> EntityBuilder<'a> {
 
 pub trait Component: std::any::Any + std::fmt::Debug {
     fn as_any(&self) -> &std::any::Any;
+    fn as_any_mut(&mut self) -> &mut std::any::Any;
 }
 
 pub type Position = (f32, f32);
@@ -261,12 +283,18 @@ impl Component for Pos {
     fn as_any(&self) -> &std::any::Any {
         self 
     }
+    fn as_any_mut(&mut self) -> &mut std::any::Any {
+        self 
+    }
 }
 
 #[derive(Debug)]
 pub struct Vel(f32, f32);
 impl Component for Vel {
     fn as_any(&self) -> &std::any::Any {
+        self 
+    }
+    fn as_any_mut(&mut self) -> &mut std::any::Any {
         self 
     }
 }
@@ -335,8 +363,8 @@ pub trait System<'a> {
     //fn get_read() -> Vec<(TagID, Vec<TypeId>)>;
     //fn get_write() -> Vec<(TagID, Vec<TypeId>)>;
 
-    fn get_read(&World) -> Self::Read;
-    fn get_write(&mut World) -> Self::Write;
+    fn get_read(&'a World) -> Self::Read;
+    fn get_write(&'a mut World) -> Self::Write;
 
     fn run(read: Self::Read, write: Self::Write);
 }
