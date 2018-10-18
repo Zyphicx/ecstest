@@ -136,7 +136,6 @@ impl ComponentStorage for Vec<Box<Component>> {
 
     fn get(&self, id: EntityID) -> Option<CellBox<Component>> {
         Some(self[id as usize]) // Fix this to actually store empty components
-    }
 }
 
 
@@ -169,6 +168,7 @@ impl<'a> EntityBuilder<'a> {
 
 pub trait Component: std::any::Any + std::fmt::Debug {
     fn as_any(&self) -> &std::any::Any;
+    fn as_any_mut(&mut self) -> &mut std::any::Any;
 }
 
 pub type Position = (f32, f32);
@@ -208,12 +208,18 @@ impl Component for Pos {
     fn as_any(&self) -> &std::any::Any {
         self 
     }
+    fn as_any_mut(&mut self) -> &mut std::any::Any {
+        self 
+    }
 }
 
 #[derive(Debug)]
 pub struct Vel(f32, f32);
 impl Component for Vel {
     fn as_any(&self) -> &std::any::Any {
+        self 
+    }
+    fn as_any_mut(&mut self) -> &mut std::any::Any {
         self 
     }
 }
