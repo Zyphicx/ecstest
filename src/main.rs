@@ -2,151 +2,43 @@ use std::any::TypeId;
 
 use std::collections::HashMap;
 
-/*
-macro_rules! read {
-    ( $($tags:ident: $($components:ident),+ );+ ) => {
-        type Read = ( $( $( $components ),+ )+ );
+use std::marker::PhantomData;
 
-        fn get_read() -> Vec<(TagID, Vec<TypeId>)> {
-            vec![$( ($tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+] 
-        }
-    };
-
-    ( $($enums:ident::$tags:ident: $($components:ident),+ );+ ) => {
-        type Read = ( $( $( $components ),+ )+ );
-
-        fn get_read() -> Vec<(TagID, Vec<TypeId>)> {
-            vec![$( ($enums::$tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+] 
+macro_rules! impl_data {
+    ( $($tp: ident; $index:expr),* ) => {
+        impl<$($tp: Access),*> Data for ( $($tp),* ) {
+            fn fetch(world: &World, ids: Vec<Vec<EntityID>>) -> Self {
+                ($($tp::new(world, ids[$index])),*) 
+            } 
         }
     }
 }
 
-macro_rules! write {
-    ( $($tags:ident: $($components:ident),+ );+ ) => {
-        type Write = ( $( $( $components ),+ )+ );
+impl_data!(A; 0);
+impl_data!(A; 0, B; 1);
+impl_data!(A; 0, B; 1, C; 2);
+impl_data!(A; 0, B; 1, C; 2, D; 3);
+impl_data!(A; 0, B; 1, C; 2, D; 3, E; 4);
+impl_data!(A; 0, B; 1, C; 2, D; 3, E; 4, F; 5);
 
-        fn get_write() -> Vec<(TagID, Vec<TypeId>)> {
-            vec![$( ($tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+] 
-        }
-    };
 
-    ( $($enums:ident::$tags:ident: $($components:ident),+ );+ ) => {
-        type Write = ( $( $( $components ),+ )+ );
+/*
+macro_rules! data {
+    ( read: { $($rtag:path : $($rcomp:ident),* ; )* } write: { $($wtag:path : $($wcomp:ident),* ; )* } ) => {
+        type Data = ( $($(ReadAccess<'a, $rcomp>),*)* $($(WriteAccess<'a, $wcomp>),*)* );
 
-        fn get_write() -> Vec<(TagID, Vec<TypeId>)> {
-            vec![$( ($enums::$tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+] 
-        }
+        fn run_system(world: &World) {
+            ids = vec![ $($( world.tags.get($rtag).clone() ),*)*
+                $($( world.tags.get($wtag).clone() ),*)*
+            ];
+
+            let data = Self::Data::Fetch(world, ids);
+
+            Self::run(data);            
+        }        
     }
 }
 */
-
-/*
-let component_storage = world.components.get(&TypeId::of::<Pos>()).unwrap();
-let component: &Component = &**component_storage.get(*entity).unwrap();
-
-let component: &Pos = match component.as_any().downcast_ref::<Pos>() {
-    Some(comp) => comp,
-    None => panic!("Tried to access invalid component (help: check for entities with non-matching tags and components"),
-*/
-
-macro_rules! read {
-    ( $($tags:ident: $($components:ident),+ );+ ) => {
-        type Read = ( $( $( &'a $components ),+ )+ );
-
-        fn get_read(world: &World) -> Self::Read {
-            ( $( $( world.tags.get( &($tags as u32) ) // Get all entity ID's
-                            .unwrap()
-                            .iter()
-                            .map(|x| { let comp: &Component = &**world.components.get(&TypeId::of::<$components>())
-                                                                                 .unwrap()
-                                                                                 .get(*x) // Get the corresponding component
-                                                                                 .unwrap();
-                                       let comp: &$components = match comp.as_any().downcast_ref::<$components>() {
-                                            Some(component) => &component,
-                                            None => panic!("Tried to access invalid component (help: check for entities with non-matching tags and components"),
-                                       };
-
-                                       comp
-                                     })
-                            .collect()
-              ),+)+ )
-                           
-        }
-    };
-    ( $($enums:ident::$tags:ident: $($components:ident),+ );+ ) => {
-        type Read = ( $( $( &'a $components ),+ )+ );
-
-        fn get_read(world: &World) -> Self::Read {
-            $( $( world.tags.get( &($enums::$tags as u32) ) // Get all entity ID's
-                            .unwrap()
-                            .iter()
-                            .map(|x| { let comp: &Component = &**world.components.get(&TypeId::of::<$components>())
-                                                                                 .unwrap()
-                                                                                 .get(*x) // Get the corresponding component
-                                                                                 .unwrap();
-                                       let comp: &$components = match comp.as_any().downcast_ref::<$components>() {
-                                            Some(component) => &component,
-                                            None => panic!("Tried to access invalid component (help: check for entities with non-matching tags and components"),
-                                       };
-
-                                       comp
-                                     })
-                            .collect()
-              ),+)+
-                           
-        }
-    }
-}
-
-macro_rules! write {
-    ( $($tags:ident: $($components:ident),+ );+ ) => {
-        type Write = ( $( $( &'a mut $components ),+ )+ );
-
-        fn get_write(world: &mut World) -> Self::Write {
-            $( $( world.tags.get( &($tags as u32) ) // Get all entity ID's
-                            .unwrap()
-                            .iter()
-                            .map(|x| { let comp: &mut Component = &**world.components.get_mut(&TypeId::of::<$components>())
-                                                                                     .unwrap()
-                                                                                     .get_mut(*x) // Get the corresponding component
-                                                                                     .unwrap();
-                                       let comp: &mut $components = match comp.as_any().downcast_ref::<&mut $components>() {
-                                            Some(component) => &mut component,
-                                            None => panic!("Tried to access invalid component (help: check for entities with non-matching tags and components"),
-                                       };
-
-                                       comp
-                                     })
-                            .collect()
-              ),+)+
-                           
-        }
-    };
-
-    ( $($enums:ident::$tags:ident: $($components:ident),+ );+ ) => {
-        type Write = ( $( $( &'a mut $components ),+ )+ );
-
-        fn get_write(world: &mut World) -> Self::Write {
-            $( $( world.tags.get( &($enums::$tags as u32) ) // Get all entity ID's
-                            .unwrap()
-                            .iter()
-                            .map(|x| { let comp: &mut Component = &**world.components.get_mut(&TypeId::of::<$components>())
-                                                                                     .unwrap()
-                                                                                     .get_mut(*x) // Get the corresponding component
-                                                                                     .unwrap();
-                                       let comp: &mut $components = match comp.as_any().downcast_ref::<&mut $components>() {
-                                            Some(component) => &mut component,
-                                            None => panic!("Tried to access invalid component (help: check for entities with non-matching tags and components"),
-                                       };
-
-                                       comp
-                                     })
-                            .collect()
-              ),+)+
-                           
-        }
-    }
-}
 
 pub type EntityID = u32;
 pub type TagID = u32;
@@ -156,12 +48,75 @@ pub enum Tag {
     HasGravity,
 }
 
+trait Access {
+    fn new(world: &World, ids: Vec<EntityID>) -> Self;
+}
+
+pub struct ReadAccess<'a, T> {
+    phantom: PhantomData<T>,
+    current_id: usize,
+    ids: Vec<EntityID>,
+    storage: &'a ComponentStorage,
+}
+
+impl<'a, T> Access for ReadAccess<'a, T> {
+    fn new(world: &World, ids: Vec<EntityID>) -> Self {
+        ReadAccess {
+            phantom: PhantomData,
+            current_id: 0,
+            ids: ids,
+            storage: &**world.components.get(&'a TypeId::of::<T>()).unwrap(),
+        } 
+    }
+}
+
+impl<'a, T: 'a> Iterator for ReadAccess<'a, T> {
+    type Item = &'a T; 
+    fn next(&mut self) -> Option<Self::Item> {
+        self.storage.get(self.ids[self.current_id]).borrow()
+    }
+}
+
+pub struct WriteAccess<'a, T> {
+    phantom: PhantomData<T>,
+    current_id: usize,
+    ids: Vec<EntityID>,
+    storage: &'a ComponentStorage,
+}
+
+impl<'a, T> Access for WriteAccess<'a, T> {
+    fn new(world: &World, ids: Vec<EntityID>) -> Self {
+        WriteAccess {
+            phantom: PhantomData,
+            current_id: 0,
+            ids: ids,
+            storage: &**world.components.get(&'a TypeId::of::<T>()).unwrap(),
+        } 
+    }
+}
+
+trait Data {
+    fn fetch(world: &World, Vec<Vec<EntityID>>) -> Self;
+}
+
+impl<'a, T: 'a> Iterator for WriteAccess<'a, T> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.storage.get(self.ids[self.current_id]).borrow_mut() 
+    }
+}
+
 use Tag::*;
+
+use std::rc::Rc;
+use std::cell::RefCell;
+
+type CellBox<T> = Rc<RefCell<Box<T>>>;
 
 pub trait ComponentStorage: std::fmt::Debug {
     fn put(&mut self, id: EntityID, comp: Box<Component>);
-    fn get(&self, id: EntityID) -> Option<&Box<Component>>;
-    fn get_mut(&mut self, id: EntityID) -> Option<&mut Box<Component>>;
+    fn get(&self, id: EntityID) -> Option<CellBox<Component>>;
 }
 
 impl ComponentStorage for HashMap<EntityID, Box<Component>> {
@@ -169,12 +124,8 @@ impl ComponentStorage for HashMap<EntityID, Box<Component>> {
         self.insert(id, comp);
     }
 
-    fn get(&self, id: EntityID) -> Option<&Box<Component>> {
-        HashMap::get(self, &id)
-    }
-
-    fn get_mut(&mut self, id: EntityID) -> Option<&mut Box<Component>> {
-        HashMap::get_mut(self, &id)
+    fn get(&self, id: EntityID) -> Option<CellBox<Component>> {
+        *HashMap::get(self, &id)
     }
 }
 
@@ -183,12 +134,8 @@ impl ComponentStorage for Vec<Box<Component>> {
         self.insert(id as usize, comp); 
     }
 
-    fn get(&self, id: EntityID) -> Option<&Box<Component>> {
-        Some(&self[id as usize]) // Fix this to actually store empty components
-    }
-
-    fn get_mut(&mut self, id: EntityID) -> Option<&mut Box<Component>> {
-        Some(&self[id as usize])
+    fn get(&self, id: EntityID) -> Option<CellBox<Component>> {
+        Some(self[id as usize]) // Fix this to actually store empty components
     }
 }
 
@@ -283,11 +230,6 @@ fn main() {
 
     world.new_entity().add(Pos(4.0, 3.0)).add(Vel(1.0, 3.0)).tag(t!(HasGravity)).done();
 
-    //println!("{:?}", world);
-
-    //println!("{:?}", MoveSystem::get_read());
-    //println!("{:?}", MoveSystem::get_write());
-
     let mut positions: Vec<&Pos> = Vec::new();
 
     for entity in world.tags.get(&(Tag::HasGravity as u32)).unwrap().iter() {
@@ -303,61 +245,49 @@ fn main() {
     }
 
     println!("Positions: {:?}", positions);
-
-    //MoveSystem::run(
 }
-
-/*
-fn get_components(Vec<(TagID, Vec<TypeId>)>) {
-    let mut positions: Vec<&Pos> = Vec::new();
-
-    for entity in world.tags.get(&(Tag::HasGravity as u32)).unwrap().iter() {
-        let component_storage = world.components.get(&TypeId::of::<Pos>()).unwrap();
-        let component: &Component = &**component_storage.get(*entity).unwrap();
-
-        let component: &Pos = match component.as_any().downcast_ref::<Pos>() {
-            Some(comp) => comp,
-            None => panic!("Tried to access invalid component (help: check for entities with non-matching tags and components"),
-        };
-
-        positions.push(component);
-    }
-
-    println!("{:?}", System::Read);
-}
-*/
 
 pub trait System<'a> {
     // Read can either take a tag or a component
-    type Read;
-    type Write;
+    type Data: Data;
 
-    //fn get_read() -> Vec<(TagID, Vec<TypeId>)>;
-    //fn get_write() -> Vec<(TagID, Vec<TypeId>)>;
+    fn run_system(world: &World);
 
-    fn get_read(&World) -> Self::Read;
-    fn get_write(&mut World) -> Self::Write;
-
-    fn run(read: Self::Read, write: Self::Write);
+    fn run(read: Self::Data);
 }
 
 pub struct MoveSystem {}
 
-/*
-impl<'a> MoveSystem {
-    fn run_system(&self, world: &mut World) {
-        let read = &MoveSystem::get_read();
-
-        println!("{:?}", read);
-    }
-}
-*/
-
 impl<'a> System<'a> for MoveSystem {
-    read!( Tag::HasGravity: Vel ); 
-    write!( Tag::HasGravity: Pos );
+//    read!( Tag::HasGravity: Vel ); 
+//    write!( Tag::HasGravity: Pos );
 
-    fn run(read: Self::Read, write: Self::Write){
+/*
+    data!(read: {
+            HasGravity: Vel; 
+          }
+
+          write: {
+            HasGravity: Pos;
+          }
+         );
+
+*/
+    type Data = ( ReadAccess<'a, Vel>, WriteAccess<'a, Pos> );
+
+    fn run_system(world: &World) {
+        let ids = vec![ world.tags.get(HasGravity).clone(),
+                        world.tags.get(HasGravity).clone()
+                      ];
+
+        let data = Self::Data::Fetch(world, ids);
+
+        Self::run(data);            
+    }        
+
+    fn run(read: Self::Data){
         println!("{:?}", read);
     }
 }
+
+//( read: $($rtag:ident: $($rcomp:ident),* );* write: $($wtag:ident: $($wcomp:ident),* );* )
