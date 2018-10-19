@@ -1,299 +1,210 @@
+use std::any::Any;
 use std::any::TypeId;
-
 use std::collections::HashMap;
-
+use std::collections::LinkedList;
 use std::marker::PhantomData;
+use std::cell::{RefCell, Ref, RefMut};
+use std::fmt::Debug;
 
-macro_rules! impl_data {
-    ( $($tp: ident; $index:expr),* ) => {
-        impl<$($tp: Access),*> Data for ( $($tp),* ) {
-            fn fetch(world: &World, ids: Vec<Vec<EntityID>>) -> Self {
-                ($($tp::new(world, ids[$index])),*) 
-            } 
+type EntityID = u32;
+type TagID = u32;
+type CompID = TypeId;
+
+pub struct IDTracker {
+    next_id: EntityID,
+    free_ids: Vec<EntityID>,
+}
+
+impl IDTracker {
+    fn new() -> Self {
+        IDTracker {
+            next_id: 0,
+            free_ids: Vec::new(),
+        }
+    }
+
+    fn next_id(&mut self) -> EntityID {
+        if self.free_ids.is_empty() {
+            let id = self.next_id;
+            self.next_id += 1;
+            id
+        } else {
+            self.free_ids.pop().unwrap()
+        }
+    }
+
+    fn free_id(&mut self, id: EntityID) {
+        if id == self.next_id - 1 {
+            self.next_id -= 1;
+        } else {
+            self.free_ids.push(id);
         }
     }
 }
 
-impl_data!(A; 0);
-impl_data!(A; 0, B; 1);
-impl_data!(A; 0, B; 1, C; 2);
-impl_data!(A; 0, B; 1, C; 2, D; 3);
-impl_data!(A; 0, B; 1, C; 2, D; 3, E; 4);
-impl_data!(A; 0, B; 1, C; 2, D; 3, E; 4, F; 5);
-
-
-/*
-macro_rules! data {
-    ( read: { $($rtag:path : $($rcomp:ident),* ; )* } write: { $($wtag:path : $($wcomp:ident),* ; )* } ) => {
-        type Data = ( $($(ReadAccess<'a, $rcomp>),*)* $($(WriteAccess<'a, $wcomp>),*)* );
-
-        fn run_system(world: &World) {
-            ids = vec![ $($( world.tags.get($rtag).clone() ),*)*
-                $($( world.tags.get($wtag).clone() ),*)*
-            ];
-
-            let data = Self::Data::Fetch(world, ids);
-
-            Self::run(data);            
-        }        
-    }
-}
-*/
-
-pub type EntityID = u32;
-pub type TagID = u32;
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum Tag {
-    HasGravity,
+pub trait Component: Any + Debug {
+    fn as_any(&self) -> &std::any::Any;
+    fn as_any_mut(&mut self) -> &mut std::any::Any;
 }
 
-trait Access {
-    fn new(world: &World, ids: Vec<EntityID>) -> Self;
-}
-
-pub struct ReadAccess<'a, T> {
-    phantom: PhantomData<T>,
-    current_id: usize,
-    ids: Vec<EntityID>,
-    storage: &'a ComponentStorage,
-}
-
-impl<'a, T> Access for ReadAccess<'a, T> {
-    fn new(world: &World, ids: Vec<EntityID>) -> Self {
-        ReadAccess {
-            phantom: PhantomData,
-            current_id: 0,
-            ids: ids,
-            storage: &**world.components.get(&'a TypeId::of::<T>()).unwrap(),
-        } 
-    }
-}
-
-impl<'a, T: 'a> Iterator for ReadAccess<'a, T> {
-    type Item = &'a T; 
-    fn next(&mut self) -> Option<Self::Item> {
-        self.storage.get(self.ids[self.current_id]).borrow()
-    }
-}
-
-pub struct WriteAccess<'a, T> {
-    phantom: PhantomData<T>,
-    current_id: usize,
-    ids: Vec<EntityID>,
-    storage: &'a ComponentStorage,
-}
-
-impl<'a, T> Access for WriteAccess<'a, T> {
-    fn new(world: &World, ids: Vec<EntityID>) -> Self {
-        WriteAccess {
-            phantom: PhantomData,
-            current_id: 0,
-            ids: ids,
-            storage: &**world.components.get(&'a TypeId::of::<T>()).unwrap(),
-        } 
-    }
-}
-
-trait Data {
-    fn fetch(world: &World, Vec<Vec<EntityID>>) -> Self;
-}
-
-impl<'a, T: 'a> Iterator for WriteAccess<'a, T> {
-    type Item = &'a mut T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.storage.get(self.ids[self.current_id]).borrow_mut() 
-    }
-}
-
-use Tag::*;
-
-use std::rc::Rc;
-use std::cell::RefCell;
-
-type CellBox<T> = Rc<RefCell<Box<T>>>;
-
-pub trait ComponentStorage: std::fmt::Debug {
+pub trait ComponentStorage {
     fn put(&mut self, id: EntityID, comp: Box<Component>);
-    fn get(&self, id: EntityID) -> Option<CellBox<Component>>;
+    fn get(&self, id: EntityID) -> Ref<Box<Component>>;
+    fn get_mut(&mut self, id: EntityID) -> RefMut<Box<Component>>;
 }
 
-impl ComponentStorage for HashMap<EntityID, Box<Component>> {
+impl ComponentStorage for Vec<RefCell<Box<Component>>> {        // Change from RefCell to atomically counted RefCell to make it thread safe
     fn put(&mut self, id: EntityID, comp: Box<Component>) {
-        self.insert(id, comp);
+        self.insert(id as usize, RefCell::new(comp));
     }
 
-    fn get(&self, id: EntityID) -> Option<CellBox<Component>> {
-        *HashMap::get(self, &id)
+    fn get(&self, id: EntityID) -> Ref<Box<Component>> {
+        self[id as usize].borrow()
+    }
+
+    fn get_mut(&mut self, id: EntityID) -> RefMut<Box<Component>> {
+        self[id as usize].borrow_mut()
     }
 }
 
-impl ComponentStorage for Vec<Box<Component>> {
-    fn put(&mut self, id: EntityID, comp: Box<Component>) {
-        self.insert(id as usize, comp); 
-    }
-
-    fn get(&self, id: EntityID) -> Option<CellBox<Component>> {
-        Some(self[id as usize]) // Fix this to actually store empty components
-}
-
-
-pub struct EntityBuilder<'a> {
+pub struct EntityBuilder<'a> { // Used for creating and modifying entities
     id: EntityID,
     world: &'a mut World,
 }
 
 impl<'a> EntityBuilder<'a> {
-    fn add<T: Component + 'static>(self, comp: T) -> Self { // Adds component
-        self.world.components.get_mut(&TypeId::of::<T>())
-                             .unwrap()
-                             .put(self.id, Box::new(comp));
-        self
-    }
-
-    fn tag(self, t: TagID) -> Self { // Adds self to specific tag
-        if !self.world.tags.contains_key(&t) {
-            self.world.tags.insert(t, Vec::new());
+    fn new(world: &'a mut World) -> Self {
+        EntityBuilder {
+            id: world.id_tracker.next_id(),
+            world: world,
         }
-
-        self.world.tags.get_mut(&t)
-                       .unwrap()
-                       .push(self.id);
-        self
     }
 
-    fn done(self) {} // Consumes self
+    fn from_id(world: &'a mut World, id: EntityID) -> Self {
+        EntityBuilder {
+            id: id,
+            world: world,
+        }
+    }
+
+    fn add_component<T: Component>(&mut self, comp: T) {
+        self.world.insert_comp(self.id, comp);
+    }
+
+    fn add_tag(&mut self, tag: TagID) {
+        self.world.tags.get_mut(&tag)
+                       .unwrap()
+                       .push_front(self.id);
+    }
+
+    fn remove_tag(&mut self, tag: TagID) {
+        self.world.tags.get_mut(&tag)
+                       .remove
+    }
 }
 
-pub trait Component: std::any::Any + std::fmt::Debug {
-    fn as_any(&self) -> &std::any::Any;
-    fn as_any_mut(&mut self) -> &mut std::any::Any;
-}
-
-pub type Position = (f32, f32);
-pub type Velocity = (f32, f32);
-
-/* ****************World**************** */
-
-#[derive(Debug)] pub struct World {
-    id_count: EntityID,
-    components: HashMap<TypeId, Box<ComponentStorage>>,
-    tags: HashMap<TagID, Vec<EntityID>>,
+pub struct World {
+    id_tracker: IDTracker,
+    components: HashMap<CompID, Box<ComponentStorage>>, // Possibly replace this with a vec / array which has a size equal to the amount of components
+    tags: HashMap<TagID, LinkedList<EntityID>>, // Is linked list the best storage solution here? Could a binary     tree be better?
 }
 
 impl World {
-    fn new() -> World {
-        World { id_count: 0, components: HashMap::new(), tags: HashMap::new() }
+    fn new() -> Self {
+        World {
+            id_tracker: IDTracker::new(),
+            components: HashMap::new(),
+            tags: HashMap::new(),
+        }
     }
 
-    fn next_id(&mut self) -> EntityID {
-        let id = self.id_count;
-        self.id_count += 1;
-        id
+    fn insert_comp<T: Component + 'static>(&mut self, id: EntityID, comp: T) {
+        self.components.get_mut(&TypeId::of::<T>())
+                       .expect("Could not find a matching component storage")
+                       .put(id, Box::new(comp));
+    }
+
+    fn get_comp<T: Component + 'static>(&self, id: EntityID) -> Ref<T> {
+        let comp = self.components.get(&TypeId::of::<T>())
+                                  .expect("Could not find a matching component storage")
+                                  .get(id);
+        Ref::map(comp, |x| {
+            let component = &*x;
+
+            let component: &T = match component.as_any().downcast_ref::<T>() {
+                Some(c) => c,
+                None    => panic!("Could not get component from trait object"),
+            };
+
+            component
+        })
+    }
+
+    fn get_comp_mut<'a, T: Component + 'static>(&'a mut self, id: EntityID) -> RefMut<T> {
+        let comp = self.components.get_mut(&TypeId::of::<T>())
+                                  .expect("Could not find a matching component storage")
+                                  .get_mut(id);
+
+        RefMut::map(comp, |x| {
+            let component = &mut *x;
+
+            let component: &mut T = match component.as_any_mut().downcast_mut::<T>() {
+                Some(c) => c,
+                None    => panic!("Could not get component from trait object"),
+            };
+
+            component
+        })
     }
 
     fn new_entity(&mut self) -> EntityBuilder {
-        EntityBuilder { id: self.next_id(), world: self }
-    }
-
-    fn add_storage<T: 'static>(&mut self) {
-        self.components.insert(TypeId::of::<T>(), Box::new(HashMap::new()));
+        EntityBuilder::new(self)
     }
 }
 
 #[derive(Debug)]
-pub struct Pos(f32, f32);
+struct Pos(f32, f32);
+
 impl Component for Pos {
     fn as_any(&self) -> &std::any::Any {
-        self 
+        self
     }
     fn as_any_mut(&mut self) -> &mut std::any::Any {
-        self 
+        self
     }
-}
-
-#[derive(Debug)]
-pub struct Vel(f32, f32);
-impl Component for Vel {
-    fn as_any(&self) -> &std::any::Any {
-        self 
-    }
-    fn as_any_mut(&mut self) -> &mut std::any::Any {
-        self 
-    }
-}
-
-macro_rules! t {
-    ( $tagName:ident ) => { Tag::$tagName as TagID }
 }
 
 fn main() {
     let mut world = World::new();
 
-    world.add_storage::<Pos>();
-    world.add_storage::<Vel>();
+    world.components.insert(TypeId::of::<Pos>(), Box::new(Vec::new()));
 
-    world.new_entity().add(Pos(4.0, 3.0)).add(Vel(1.0, 3.0)).tag(t!(HasGravity)).done();
+    {
+        let mut builder = world.new_entity();
 
-    let mut positions: Vec<&Pos> = Vec::new();
-
-    for entity in world.tags.get(&(Tag::HasGravity as u32)).unwrap().iter() {
-        let component_storage = world.components.get(&TypeId::of::<Pos>()).unwrap();
-        let component: &Component = &**component_storage.get(*entity).unwrap();
-
-        let component: &Pos = match component.as_any().downcast_ref::<Pos>() {
-            Some(comp) => comp,
-            None => panic!("Tried to access invalid component (help: check for entities with non-matching tags and components"),
-        };
-
-        positions.push(component);
+        builder.add_component(Pos(3.0, 5.0));
     }
 
-    println!("Positions: {:?}", positions);
-}
+    let mut comp = world.get_comp_mut::<Pos>(0);
 
-pub trait System<'a> {
-    // Read can either take a tag or a component
-    type Data: Data;
-
-    fn run_system(world: &World);
-
-    fn run(read: Self::Data);
-}
-
-pub struct MoveSystem {}
-
-impl<'a> System<'a> for MoveSystem {
-//    read!( Tag::HasGravity: Vel ); 
-//    write!( Tag::HasGravity: Pos );
+    println!("Component: {:?}", comp);
 
 /*
-    data!(read: {
-            HasGravity: Vel; 
-          }
+    let id = world.id_tracker.next_id();
 
-          write: {
-            HasGravity: Pos;
-          }
-         );
+    world.insert_comp(id, Pos(3.0, 5.0));
+
+    {
+        let mut comp = world.get_comp_mut::<Pos>(id);
+
+        println!("Component: {:?}", comp);
+
+        *comp = Pos(4.0, 3.5);
+    }
+
+    let mut comp2 = world.get_comp_mut::<Pos>(id);
+
+    println!("Component: {:?}", comp2);
 
 */
-    type Data = ( ReadAccess<'a, Vel>, WriteAccess<'a, Pos> );
-
-    fn run_system(world: &World) {
-        let ids = vec![ world.tags.get(HasGravity).clone(),
-                        world.tags.get(HasGravity).clone()
-                      ];
-
-        let data = Self::Data::Fetch(world, ids);
-
-        Self::run(data);            
-    }        
-
-    fn run(read: Self::Data){
-        println!("{:?}", read);
-    }
 }
-
-//( read: $($rtag:ident: $($rcomp:ident),* );* write: $($wtag:ident: $($wcomp:ident),* );* )
