@@ -8,7 +8,7 @@ macro_rules! read {
         type Read = ( $( $( $components ),+ )+ );
 
         fn get_read() -> Vec<(TagID, Vec<TypeId>)> {
-            vec![$( ($tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+] 
+            vec![$( ($tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+]
         }
     };
 
@@ -16,7 +16,7 @@ macro_rules! read {
         type Read = ( $( $( $components ),+ )+ );
 
         fn get_read() -> Vec<(TagID, Vec<TypeId>)> {
-            vec![$( ($enums::$tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+] 
+            vec![$( ($enums::$tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+]
         }
     }
 }
@@ -26,7 +26,7 @@ macro_rules! write {
         type Write = ( $( $( $components ),+ )+ );
 
         fn get_write() -> Vec<(TagID, Vec<TypeId>)> {
-            vec![$( ($tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+] 
+            vec![$( ($tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+]
         }
     };
 
@@ -34,7 +34,7 @@ macro_rules! write {
         type Write = ( $( $( $components ),+ )+ );
 
         fn get_write() -> Vec<(TagID, Vec<TypeId>)> {
-            vec![$( ($enums::$tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+] 
+            vec![$( ($enums::$tags as u32, vec![$( TypeId::of::<$components>() ),+] ) ),+]
         }
     }
 }
@@ -70,7 +70,7 @@ macro_rules! read {
                                      })
                             .collect()
               ),+)+ )
-                           
+
         }
     };
     ( $($enums:ident::$tags:ident: $($components:ident),+ );+ ) => {
@@ -93,7 +93,7 @@ macro_rules! read {
                                      })
                             .collect()
               ),+)+
-                           
+
         }
     }
 }
@@ -119,7 +119,7 @@ macro_rules! write {
                                      })
                             .collect()
               ),+)+
-                           
+
         }
     };
 
@@ -143,7 +143,7 @@ macro_rules! write {
                                      })
                             .collect()
               ),+)+
-                           
+
         }
     }
 }
@@ -180,7 +180,7 @@ impl ComponentStorage for HashMap<EntityID, Box<Component>> {
 
 impl ComponentStorage for Vec<Box<Component>> {
     fn put(&mut self, id: EntityID, comp: Box<Component>) {
-        self.insert(id as usize, comp); 
+        self.insert(id as usize, comp);
     }
 
     fn get(&self, id: EntityID) -> Option<&Box<Component>> {
@@ -192,28 +192,29 @@ impl ComponentStorage for Vec<Box<Component>> {
     }
 }
 
-
 pub struct EntityBuilder<'a> {
     id: EntityID,
     world: &'a mut World,
 }
 
 impl<'a> EntityBuilder<'a> {
-    fn add<T: Component + 'static>(self, comp: T) -> Self { // Adds component
-        self.world.components.get_mut(&TypeId::of::<T>())
-                             .unwrap()
-                             .put(self.id, Box::new(comp));
+    fn add<T: Component + 'static>(self, comp: T) -> Self {
+        // Adds component
+        self.world
+            .components
+            .get_mut(&TypeId::of::<T>())
+            .unwrap()
+            .put(self.id, Box::new(comp));
         self
     }
 
-    fn tag(self, t: TagID) -> Self { // Adds self to specific tag
+    fn tag(self, t: TagID) -> Self {
+        // Adds self to specific tag
         if !self.world.tags.contains_key(&t) {
             self.world.tags.insert(t, Vec::new());
         }
 
-        self.world.tags.get_mut(&t)
-                       .unwrap()
-                       .push(self.id);
+        self.world.tags.get_mut(&t).unwrap().push(self.id);
         self
     }
 
@@ -229,7 +230,8 @@ pub type Velocity = (f32, f32);
 
 /* ****************World**************** */
 
-#[derive(Debug)] pub struct World {
+#[derive(Debug)]
+pub struct World {
     id_count: EntityID,
     components: HashMap<TypeId, Box<ComponentStorage>>,
     tags: HashMap<TagID, Vec<EntityID>>,
@@ -237,7 +239,11 @@ pub type Velocity = (f32, f32);
 
 impl World {
     fn new() -> World {
-        World { id_count: 0, components: HashMap::new(), tags: HashMap::new() }
+        World {
+            id_count: 0,
+            components: HashMap::new(),
+            tags: HashMap::new(),
+        }
     }
 
     fn next_id(&mut self) -> EntityID {
@@ -247,11 +253,15 @@ impl World {
     }
 
     fn new_entity(&mut self) -> EntityBuilder {
-        EntityBuilder { id: self.next_id(), world: self }
+        EntityBuilder {
+            id: self.next_id(),
+            world: self,
+        }
     }
 
     fn add_storage<T: 'static>(&mut self) {
-        self.components.insert(TypeId::of::<T>(), Box::new(HashMap::new()));
+        self.components
+            .insert(TypeId::of::<T>(), Box::new(HashMap::new()));
     }
 }
 
@@ -259,7 +269,7 @@ impl World {
 pub struct Pos(f32, f32);
 impl Component for Pos {
     fn as_any(&self) -> &std::any::Any {
-        self 
+        self
     }
 }
 
@@ -267,12 +277,14 @@ impl Component for Pos {
 pub struct Vel(f32, f32);
 impl Component for Vel {
     fn as_any(&self) -> &std::any::Any {
-        self 
+        self
     }
 }
 
 macro_rules! t {
-    ( $tagName:ident ) => { Tag::$tagName as TagID }
+    ( $tagName:ident ) => {
+        Tag::$tagName as TagID
+    };
 }
 
 fn main() {
@@ -281,7 +293,12 @@ fn main() {
     world.add_storage::<Pos>();
     world.add_storage::<Vel>();
 
-    world.new_entity().add(Pos(4.0, 3.0)).add(Vel(1.0, 3.0)).tag(t!(HasGravity)).done();
+    world
+        .new_entity()
+        .add(Pos(4.0, 3.0))
+        .add(Vel(1.0, 3.0))
+        .tag(t!(HasGravity))
+        .done();
 
     //println!("{:?}", world);
 
@@ -354,10 +371,10 @@ impl<'a> MoveSystem {
 */
 
 impl<'a> System<'a> for MoveSystem {
-    read!( Tag::HasGravity: Vel ); 
-    write!( Tag::HasGravity: Pos );
+    read!(Tag::HasGravity: Vel);
+    write!(Tag::HasGravity: Pos);
 
-    fn run(read: Self::Read, write: Self::Write){
+    fn run(read: Self::Read, write: Self::Write) {
         println!("{:?}", read);
     }
 }
